@@ -49,6 +49,8 @@ type mockAthenaClient struct {
 	listDataCatalogsFn    func(ctx context.Context, params *athenaSDK.ListDataCatalogsInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.ListDataCatalogsOutput, error)
 	listDatabasesFn       func(ctx context.Context, params *athenaSDK.ListDatabasesInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.ListDatabasesOutput, error)
 	listTableMetadataFn   func(ctx context.Context, params *athenaSDK.ListTableMetadataInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.ListTableMetadataOutput, error)
+	getDataCatalogFn      func(ctx context.Context, params *athenaSDK.GetDataCatalogInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetDataCatalogOutput, error)
+	getWorkGroupFn        func(ctx context.Context, params *athenaSDK.GetWorkGroupInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetWorkGroupOutput, error)
 }
 
 func (m *mockAthenaClient) StartQueryExecution(ctx context.Context, params *athenaSDK.StartQueryExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartQueryExecutionOutput, error) {
@@ -77,6 +79,14 @@ func (m *mockAthenaClient) ListDatabases(ctx context.Context, params *athenaSDK.
 }
 func (m *mockAthenaClient) ListTableMetadata(ctx context.Context, params *athenaSDK.ListTableMetadataInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.ListTableMetadataOutput, error) {
 	return m.listTableMetadataFn(ctx, params, optFns...)
+}
+
+func (m *mockAthenaClient) GetDataCatalog(ctx context.Context, params *athenaSDK.GetDataCatalogInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetDataCatalogOutput, error) {
+	return m.getDataCatalogFn(ctx, params, optFns...)
+}
+
+func (m *mockAthenaClient) GetWorkGroup(ctx context.Context, params *athenaSDK.GetWorkGroupInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetWorkGroupOutput, error) {
+	return m.getWorkGroupFn(ctx, params, optFns...)
 }
 
 // ---------------------------------------------------------------------------

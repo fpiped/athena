@@ -59,6 +59,47 @@ The driver supports three auth modes, set via `athena.OptionAuthType`:
 | `"access_key"`| `AuthTypeAccessKey`   | Static credentials via `OptionAccessKeyID` / `OptionSecretKey` / `OptionSessionToken` |
 | `"profile"`   | `AuthTypeProfile`     | Named profile via `OptionProfileName`               |
 
+## Catalog and storage operations
+
+Athena tables are Glue catalog entries over S3 prefixes, and Athena SQL manages
+neither: dropping a Hive table leaves its files behind, Glue keeps every table
+version, and a seed has to be staged as a CSV object before Athena can read it.
+dbt-athena performs that work through the AWS APIs. The driver exposes the same
+calls behind two statement options, so a client keeps one set of credentials:
+
+```go
+stmt.SetOption("athena.operation", "glue.get_table")
+stmt.SetOption("athena.operation.payload", `{"DatabaseName": "analytics", "Name": "orders"}`)
+rdr, _, err := stmt.ExecuteQuery(ctx) // one row, one utf8 column `result`: {"Table": {...}}
+```
+
+The SQL text is ignored. The payload is the JSON form of the AWS API input, the
+result is the JSON form of the API output; paginated calls return every page,
+batch calls are chunked to the API limits. `ExecuteUpdate` runs the operation
+and returns 0. Unknown operations and malformed payloads fail with
+`InvalidArgument`; AWS errors with `IO`.
+
+| operation | input | result |
+|---|---|---|
+| `sts.get_caller_identity` | `{}` | `{"Account": ...}` |
+| `athena.get_data_catalog` | `{"Name"}` | `{"DataCatalog": ...}` |
+| `athena.get_work_group` | `{"WorkGroup"}` | `{"WorkGroup": ...}` |
+| `glue.get_table` | `{"CatalogId"?, "DatabaseName", "Name"}` | `{"Table": ...}`; `{"Table": null}` when missing |
+| `glue.delete_table` | `{"CatalogId"?, "DatabaseName", "Name"}` | `{"Deleted": bool}`; a missing table is not an error |
+| `glue.delete_database` | `{"CatalogId"?, "Name"}` | `{}` |
+| `glue.get_table_versions` | `{"CatalogId"?, "DatabaseName", "TableName"}` | `{"TableVersions": [...]}` |
+| `glue.delete_table_version` | `{"CatalogId"?, "DatabaseName", "TableName", "VersionId"}` | `{}` |
+| `glue.get_partitions` | `{"CatalogId"?, "DatabaseName", "TableName", "Expression"?, "ExcludeColumnSchema"?}` | `{"Partitions": [...]}` |
+| `glue.batch_delete_partition` | `{"CatalogId"?, "DatabaseName", "TableName", "PartitionsToDelete": [{"Values": [...]}]}` | `{"Errors": [...]}`, 25 per request |
+| `glue.batch_create_partition` | `{"CatalogId"?, "DatabaseName", "TableName", "PartitionInputList": [...]}` | `{"Errors": [...]}`, 100 per request |
+| `glue.update_table` | `{"CatalogId"?, "DatabaseName", "TableInput": {...}, "SkipArchive"?}` | `{}` |
+| `s3.list_objects` | `{"Bucket", "Prefix"}` | `{"Keys": [...]}` |
+| `s3.delete_objects` | `{"Bucket", "Keys": [...]}` | `{"Errors": [{"Key", "Code", "Message"}]}`, 1000 per request |
+| `s3.put_object` | `{"Bucket", "Key", "Body" (base64), "ServerSideEncryption"?, "SSEKMSKeyId"?, "ACL"?, "StorageClass"?, "ContentType"?, "BucketKeyEnabled"?}` | `{}` |
+
+The credentials need the matching IAM permissions (`glue:GetTable`, `s3:PutObject`, ...)
+in addition to the Athena ones.
+
 ## Development
 
 ### Build
