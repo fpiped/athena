@@ -50,8 +50,9 @@ import (
 //	statement.SetOption("athena.operation.payload", `{"DatabaseName":"db","Name":"t"}`)
 //	rdr, _, err := statement.ExecuteQuery(ctx)
 //
-// The payload is the JSON form of the AWS API input; the result is one record
-// with a single utf8 column `result` holding the JSON form of the API output.
+// The payload is the JSON form of the AWS API input, except for the S3
+// operations, whose simplified inputs are documented on each constant; the
+// result is one record with a single utf8 column `result` holding JSON.
 // Paginated calls return every page in one response; batch calls are chunked to
 // the API limits. Only the operations below are accepted.
 const (
@@ -107,6 +108,26 @@ const (
 	glueBatchCreatePartitionLimit = 100
 	s3DeleteObjectsLimit          = 1000
 )
+
+// knownOperations is checked before any AWS client is built, so an unknown
+// name fails with InvalidArgument rather than with a credentials error.
+var knownOperations = map[string]bool{
+	OperationStsGetCallerIdentity:     true,
+	OperationAthenaGetDataCatalog:     true,
+	OperationAthenaGetWorkGroup:       true,
+	OperationGlueGetTable:             true,
+	OperationGlueDeleteTable:          true,
+	OperationGlueDeleteDatabase:       true,
+	OperationGlueGetTableVersions:     true,
+	OperationGlueDeleteTableVersion:   true,
+	OperationGlueGetPartitions:        true,
+	OperationGlueBatchDeletePartition: true,
+	OperationGlueBatchCreatePartition: true,
+	OperationGlueUpdateTable:          true,
+	OperationS3ListObjects:            true,
+	OperationS3DeleteObjects:          true,
+	OperationS3PutObject:              true,
+}
 
 // operationResultSchema is the schema of every operation result: one utf8
 // column holding the JSON response.
@@ -192,6 +213,12 @@ func isGlueNotFound(err error) bool {
 // runOperation performs the operation and returns the JSON-encoded response.
 func (s *statementImpl) runOperation(ctx context.Context) ([]byte, error) {
 	op := s.operation
+	if !knownOperations[op] {
+		return nil, adbc.Error{
+			Code: adbc.StatusInvalidArgument,
+			Msg:  fmt.Sprintf("[athena] unknown %s '%s'", OptionOperation, op),
+		}
+	}
 	clients, err := s.conn.clients(ctx)
 	if err != nil {
 		return nil, err
@@ -199,7 +226,11 @@ func (s *statementImpl) runOperation(ctx context.Context) ([]byte, error) {
 	var out any
 	switch op {
 	case OperationStsGetCallerIdentity:
-		identity, err := clients.sts.GetCallerIdentity(ctx, &stsSDK.GetCallerIdentityInput{})
+		var in stsSDK.GetCallerIdentityInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		identity, err := clients.sts.GetCallerIdentity(ctx, &in)
 		if err != nil {
 			return nil, operationError(op, err)
 		}

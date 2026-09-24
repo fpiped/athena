@@ -164,6 +164,23 @@ func TestOperation_UnknownOperationAndBadPayload(t *testing.T) {
 	requireStatus(t, err, adbc.StatusInvalidArgument)
 }
 
+func TestOperation_UnknownOperationFailsBeforeBuildingClients(t *testing.T) {
+	stmt := newOperationStmt(t, nil, nil, "glue.no_such_operation", "{}")
+	_, err := stmt.ExecuteUpdate(context.Background())
+	requireStatus(t, err, adbc.StatusInvalidArgument)
+	assert.Nil(t, stmt.conn.aws, "no AWS client is built for an unknown operation")
+}
+
+func TestOperation_StsRejectsAMalformedPayload(t *testing.T) {
+	sts := &mockStsClient{getCallerIdentityFn: func(*stsSDK.GetCallerIdentityInput) (*stsSDK.GetCallerIdentityOutput, error) {
+		t.Fatal("GetCallerIdentity must not be called with a malformed payload")
+		return nil, nil
+	}}
+	stmt := newOperationStmt(t, nil, &awsClients{sts: sts}, OperationStsGetCallerIdentity, "{")
+	_, _, err := stmt.ExecuteQuery(context.Background())
+	requireStatus(t, err, adbc.StatusInvalidArgument)
+}
+
 func TestOperation_ExecuteUpdateRunsTheOperation(t *testing.T) {
 	deleted := 0
 	glue := &mockGlueClient{deleteTableVersionFn: func(in *glueSDK.DeleteTableVersionInput) (*glueSDK.DeleteTableVersionOutput, error) {

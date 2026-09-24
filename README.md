@@ -73,8 +73,9 @@ stmt.SetOption("athena.operation.payload", `{"DatabaseName": "analytics", "Name"
 rdr, _, err := stmt.ExecuteQuery(ctx) // one row, one utf8 column `result`: {"Table": {...}}
 ```
 
-The SQL text is ignored. The payload is the JSON form of the AWS API input, the
-result is the JSON form of the API output; paginated calls return every page,
+The SQL text is ignored. The payload is the JSON form of the AWS API input and the
+result the JSON form of the API output, except for the three S3 operations, which
+take and return the simplified shapes in the table; paginated calls return every page,
 batch calls are chunked to the API limits. `ExecuteUpdate` runs the operation
 and returns 0. Unknown operations and malformed payloads fail with
 `InvalidArgument`; AWS errors with `IO`.
