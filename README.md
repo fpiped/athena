@@ -92,6 +92,7 @@ and returns 0. Unknown operations and malformed payloads fail with
 | `athena.start_calculation_execution` | `{"SessionId", "CodeBlock"}` | `{"CalculationExecutionId", "State"}` |
 | `athena.get_calculation_execution` | `{"CalculationExecutionId"}` | `{"Status": ..., "Result": ...}` |
 | `athena.stop_calculation_execution` | `{"CalculationExecutionId"}` | `{"State"}` |
+| `athena.terminate_session` | `{"SessionId"}` | `{"State"}` |
 | `lakeformation.add_lf_tags_to_resource` / `remove_lf_tags_from_resource` | `{"Resource", "LFTags"}` | `{"Failures"}` |
 | `lakeformation.get_resource_lf_tags` | `{"Resource"}` | `{"LFTagOnDatabase", "LFTagsOnTable", "LFTagsOnColumns"}` |
 | `lakeformation.list_data_cells_filter` | `{"Table"}` | `{"DataCellsFilters"}`, all pages |

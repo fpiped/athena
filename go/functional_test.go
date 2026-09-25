@@ -56,6 +56,7 @@ type mockAthenaClient struct {
 	startCalculationFn    func(ctx context.Context, params *athenaSDK.StartCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartCalculationExecutionOutput, error)
 	getCalculationFn      func(ctx context.Context, params *athenaSDK.GetCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetCalculationExecutionOutput, error)
 	stopCalculationFn     func(ctx context.Context, params *athenaSDK.StopCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StopCalculationExecutionOutput, error)
+	terminateSessionFn    func(ctx context.Context, params *athenaSDK.TerminateSessionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.TerminateSessionOutput, error)
 }
 
 func (m *mockAthenaClient) StartQueryExecution(ctx context.Context, params *athenaSDK.StartQueryExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartQueryExecutionOutput, error) {
@@ -107,6 +108,9 @@ func (m *mockAthenaClient) GetCalculationExecution(ctx context.Context, params *
 }
 func (m *mockAthenaClient) StopCalculationExecution(ctx context.Context, params *athenaSDK.StopCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StopCalculationExecutionOutput, error) {
 	return m.stopCalculationFn(ctx, params, optFns...)
+}
+func (m *mockAthenaClient) TerminateSession(ctx context.Context, params *athenaSDK.TerminateSessionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.TerminateSessionOutput, error) {
+	return m.terminateSessionFn(ctx, params, optFns...)
 }
 
 // ---------------------------------------------------------------------------

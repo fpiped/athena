@@ -84,6 +84,9 @@ const (
 	OperationAthenaGetCalculationExecution = "athena.get_calculation_execution"
 	// OperationAthenaStopCalculationExecution: `{"CalculationExecutionId"}` -> `{"State"}`.
 	OperationAthenaStopCalculationExecution = "athena.stop_calculation_execution"
+	// OperationAthenaTerminateSession: `{"SessionId"}` -> `{"State"}`. Stopping a
+	// calculation is best effort; terminating its session is not.
+	OperationAthenaTerminateSession = "athena.terminate_session"
 	// OperationGlueGetTable: `{"CatalogId"?, "DatabaseName", "Name"}` ->
 	// `{"Table": {...}}`, or `{"Table": null}` when the table does not exist.
 	OperationGlueGetTable = "glue.get_table"
@@ -164,6 +167,7 @@ var knownOperations = map[string]bool{
 	OperationAthenaStartCalculationExecution: true,
 	OperationAthenaGetCalculationExecution:   true,
 	OperationAthenaStopCalculationExecution:  true,
+	OperationAthenaTerminateSession:          true,
 	OperationGlueGetTable:                    true,
 	OperationGlueDeleteTable:                 true,
 	OperationGlueDeleteDatabase:              true,
@@ -360,6 +364,8 @@ func (s *statementImpl) runOperation(ctx context.Context) ([]byte, error) {
 		out, err = callAPI(ctx, op, s.operationPayload, s.conn.athenaClient.GetCalculationExecution)
 	case OperationAthenaStopCalculationExecution:
 		out, err = callAPI(ctx, op, s.operationPayload, s.conn.athenaClient.StopCalculationExecution)
+	case OperationAthenaTerminateSession:
+		out, err = callAPI(ctx, op, s.operationPayload, s.conn.athenaClient.TerminateSession)
 
 	case OperationLakeFormationAddLFTagsToResource:
 		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.AddLFTagsToResource)

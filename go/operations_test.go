@@ -343,6 +343,10 @@ func TestOperation_AthenaSparkSessionAndCalculation(t *testing.T) {
 		stopCalculationFn: func(_ context.Context, in *athenaSDK.StopCalculationExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StopCalculationExecutionOutput, error) {
 			return &athenaSDK.StopCalculationExecutionOutput{State: athenatypes.CalculationExecutionStateCanceling}, nil
 		},
+		terminateSessionFn: func(_ context.Context, in *athenaSDK.TerminateSessionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.TerminateSessionOutput, error) {
+			assert.Equal(t, "s-1", *in.SessionId)
+			return &athenaSDK.TerminateSessionOutput{State: athenatypes.SessionStateTerminating}, nil
+		},
 	}
 
 	var session struct{ SessionId, State string }
@@ -373,6 +377,10 @@ func TestOperation_AthenaSparkSessionAndCalculation(t *testing.T) {
 	runOperationJSON(t, newOperationStmt(t, athena, &awsClients{}, OperationAthenaStopCalculationExecution,
 		`{"CalculationExecutionId":"c-1"}`), &stopped)
 	assert.Equal(t, "CANCELING", stopped.State)
+
+	var terminated struct{ State string }
+	runOperationJSON(t, newOperationStmt(t, athena, &awsClients{}, OperationAthenaTerminateSession, `{"SessionId":"s-1"}`), &terminated)
+	assert.Equal(t, "TERMINATING", terminated.State)
 }
 
 func TestOperation_LakeFormation(t *testing.T) {
