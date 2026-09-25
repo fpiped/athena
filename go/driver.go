@@ -50,6 +50,17 @@ const (
 	// OptionProfileName is the named AWS profile to use.
 	OptionProfileName = "athena.aws.profile"
 
+	// MetadataKeyQueryID is the query result schema metadata key holding the
+	// query execution ID.
+	MetadataKeyQueryID = "ATHENA:query_id"
+	// MetadataKeyDataScannedInBytes holds the bytes the query scanned
+	// (QueryExecutionStatistics.DataScannedInBytes).
+	MetadataKeyDataScannedInBytes = "ATHENA:Statistics:DataScannedInBytes"
+	// MetadataKeyUpdateCount holds the rows written by a CREATE TABLE AS SELECT,
+	// INSERT INTO, MERGE, DELETE or UNLOAD (GetQueryResults UpdateCount); absent
+	// when Athena reports none, as for DDL.
+	MetadataKeyUpdateCount = "ATHENA:UpdateCount"
+
 	// AuthTypeDefault uses the default AWS credential chain (env vars, instance profile, etc.).
 	AuthTypeDefault = "iam"
 	// AuthTypeAccessKey uses static key/secret credentials.

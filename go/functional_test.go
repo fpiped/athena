@@ -368,6 +368,77 @@ func TestFunctional_MultiPageResults(t *testing.T) {
 	assert.EqualValues(t, 4, totalRows)
 }
 
+// TestFunctional_QueryStatisticsInSchemaMetadata verifies that the result schema
+// carries the execution ID, the bytes scanned and the update count, including for
+// a statement with no result columns such as CREATE TABLE AS SELECT.
+func TestFunctional_QueryStatisticsInSchemaMetadata(t *testing.T) {
+	scanned, written := int64(931), int64(99)
+	mock := &mockAthenaClient{
+		startQueryExecutionFn: func(_ context.Context, _ *athenaSDK.StartQueryExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StartQueryExecutionOutput, error) {
+			return &athenaSDK.StartQueryExecutionOutput{QueryExecutionId: strp("exec-ctas")}, nil
+		},
+		getQueryExecutionFn: func(_ context.Context, _ *athenaSDK.GetQueryExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.GetQueryExecutionOutput, error) {
+			return &athenaSDK.GetQueryExecutionOutput{
+				QueryExecution: &types.QueryExecution{
+					Status:     &types.QueryExecutionStatus{State: types.QueryExecutionStateSucceeded},
+					Statistics: &types.QueryExecutionStatistics{DataScannedInBytes: &scanned},
+				},
+			}, nil
+		},
+		getQueryResultsFn: func(_ context.Context, _ *athenaSDK.GetQueryResultsInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.GetQueryResultsOutput, error) {
+			return &athenaSDK.GetQueryResultsOutput{UpdateCount: &written, ResultSet: &types.ResultSet{}}, nil
+		},
+	}
+
+	stmt := newTestStmt(t, mock)
+	require.NoError(t, stmt.SetSqlQuery("CREATE TABLE t AS SELECT * FROM s"))
+
+	rdr, _, err := stmt.ExecuteQuery(context.Background())
+	require.NoError(t, err)
+	defer rdr.Release()
+
+	md := rdr.Schema().Metadata()
+	assert.Equal(t, 0, rdr.Schema().NumFields())
+	for key, want := range map[string]string{
+		MetadataKeyQueryID:            "exec-ctas",
+		MetadataKeyDataScannedInBytes: "931",
+		MetadataKeyUpdateCount:        "99",
+	} {
+		got, ok := md.GetValue(key)
+		assert.True(t, ok, key)
+		assert.Equal(t, want, got, key)
+	}
+}
+
+// TestFunctional_NoUpdateCountWithoutOne verifies that the update count is left
+// out when Athena reports none, as for DDL.
+func TestFunctional_NoUpdateCountWithoutOne(t *testing.T) {
+	mock := &mockAthenaClient{
+		startQueryExecutionFn: func(_ context.Context, _ *athenaSDK.StartQueryExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StartQueryExecutionOutput, error) {
+			return &athenaSDK.StartQueryExecutionOutput{QueryExecutionId: strp("exec-ddl")}, nil
+		},
+		getQueryExecutionFn: succeedAfterN(0),
+		getQueryResultsFn: func(_ context.Context, _ *athenaSDK.GetQueryResultsInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.GetQueryResultsOutput, error) {
+			return &athenaSDK.GetQueryResultsOutput{ResultSet: &types.ResultSet{}}, nil
+		},
+	}
+
+	stmt := newTestStmt(t, mock)
+	require.NoError(t, stmt.SetSqlQuery("DROP TABLE t"))
+
+	rdr, _, err := stmt.ExecuteQuery(context.Background())
+	require.NoError(t, err)
+	defer rdr.Release()
+
+	md := rdr.Schema().Metadata()
+	_, ok := md.GetValue(MetadataKeyUpdateCount)
+	assert.False(t, ok)
+	_, ok = md.GetValue(MetadataKeyDataScannedInBytes)
+	assert.False(t, ok)
+	id, _ := md.GetValue(MetadataKeyQueryID)
+	assert.Equal(t, "exec-ddl", id)
+}
+
 // TestFunctional_GetTableSchema verifies GetTableSchema calls GetTableMetadata
 // and converts the result to a correct Arrow schema.
 func TestFunctional_GetTableSchema(t *testing.T) {
