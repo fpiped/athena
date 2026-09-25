@@ -304,6 +304,36 @@ func TestFunctional_ContextCancellationMidPoll(t *testing.T) {
 	assert.Equal(t, adbc.StatusCancelled, adbcErr.Code)
 }
 
+// TestFunctional_CancellationDuringStatusCall verifies that a cancellation that
+// fails the in-flight GetQueryExecution call still stops the query and is
+// reported as a cancellation.
+func TestFunctional_CancellationDuringStatusCall(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var stopped []string
+	mock := &mockAthenaClient{
+		startQueryExecutionFn: func(_ context.Context, _ *athenaSDK.StartQueryExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StartQueryExecutionOutput, error) {
+			return &athenaSDK.StartQueryExecutionOutput{QueryExecutionId: strp("exec-inflight")}, nil
+		},
+		getQueryExecutionFn: func(ctx context.Context, _ *athenaSDK.GetQueryExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.GetQueryExecutionOutput, error) {
+			cancel()
+			return nil, ctx.Err()
+		},
+		stopQueryExecutionFn: func(_ context.Context, in *athenaSDK.StopQueryExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StopQueryExecutionOutput, error) {
+			stopped = append(stopped, *in.QueryExecutionId)
+			return &athenaSDK.StopQueryExecutionOutput{}, nil
+		},
+	}
+
+	stmt := newTestStmt(t, mock)
+	require.NoError(t, stmt.SetSqlQuery("SELECT sleep(60)"))
+
+	_, _, err := stmt.ExecuteQuery(ctx)
+	var adbcErr adbc.Error
+	require.ErrorAs(t, err, &adbcErr)
+	assert.Equal(t, adbc.StatusCancelled, adbcErr.Code)
+	assert.Equal(t, []string{"exec-inflight"}, stopped)
+}
+
 // TestFunctional_MultiPageResults verifies that multi-page pagination is
 // read correctly across multiple result batches and returns all rows.
 func TestFunctional_MultiPageResults(t *testing.T) {
