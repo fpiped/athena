@@ -59,6 +59,20 @@ The schema of a query result carries the query's statistics as metadata:
 | `ATHENA:Statistics:DataScannedInBytes` | bytes scanned |
 | `ATHENA:UpdateCount` | rows written by `CREATE TABLE AS SELECT`, `INSERT INTO`, `MERGE`, `DELETE` or `UNLOAD`; absent when Athena reports none |
 
+### Connection options
+
+Besides the options in the example above:
+
+| option | value |
+|---|---|
+| `athena.aws.role_arn` | IAM role assumed on top of the auth type's credentials, for every AWS call |
+| `athena.aws.role_external_id`, `athena.aws.role_session_name` | AssumeRole external ID and session name |
+| `athena.aws.role_duration` | lifetime of the assumed credentials (`"1h"`); refreshed before they expire |
+| `athena.aws.max_attempts` | attempts per AWS API request, the first one included (SDK default 3) |
+| `athena.endpoint_url` | Athena API endpoint, e.g. a VPC interface endpoint |
+| `athena.poll_interval` | interval between query status checks (default `"500ms"`) |
+| `athena.iceberg_commit_retries` | reruns of a query that fails with `ICEBERG_COMMIT_ERROR`, a commit conflict with a concurrent Iceberg write (default 0) |
+
 ### Authentication
 
 The driver supports three auth modes, set via `athena.OptionAuthType`:

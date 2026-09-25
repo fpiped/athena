@@ -20,7 +20,9 @@ package athena
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -95,12 +97,7 @@ func (s *statementImpl) ExecuteQuery(ctx context.Context) (array.RecordReader, i
 		}
 	}
 
-	execID, err := s.startQuery(ctx)
-	if err != nil {
-		return nil, -1, err
-	}
-
-	execution, err := s.waitForQuery(ctx, execID)
+	execID, execution, err := s.runQuery(ctx)
 	if err != nil {
 		return nil, -1, err
 	}
@@ -128,16 +125,58 @@ func (s *statementImpl) ExecuteUpdate(ctx context.Context) (int64, error) {
 		}
 	}
 
-	execID, err := s.startQuery(ctx)
-	if err != nil {
-		return -1, err
-	}
-
-	if _, err := s.waitForQuery(ctx, execID); err != nil {
+	if _, _, err := s.runQuery(ctx); err != nil {
 		return -1, err
 	}
 
 	return -1, nil
+}
+
+// defaultPollInterval is the interval between query status checks unless
+// OptionPollInterval is set.
+const defaultPollInterval = 500 * time.Millisecond
+
+// icebergCommitRetryWait is the wait before the attempt-th rerun (from 1) of a
+// query that hit an Iceberg commit conflict: random, up to 2^(attempt-1) seconds
+// and at most 100 s, as dbt-athena waits before retrying ICEBERG_COMMIT_ERROR.
+var icebergCommitRetryWait = func(attempt int) time.Duration {
+	ceiling := min(time.Duration(1<<min(attempt-1, 7))*time.Second, 100*time.Second)
+	return rand.N(ceiling)
+}
+
+// runQuery starts the query and waits for it to finish. A query that fails with
+// ICEBERG_COMMIT_ERROR is run again, up to OptionIcebergCommitRetries times: the
+// commit was rejected because a concurrent write committed first, and nothing was
+// written.
+func (s *statementImpl) runQuery(ctx context.Context) (*string, *types.QueryExecution, error) {
+	for attempt := 1; ; attempt++ {
+		execID, err := s.startQuery(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		execution, err := s.waitForQuery(ctx, execID)
+		if err == nil {
+			return execID, execution, nil
+		}
+		if attempt > s.conn.db.icebergCommitRetries || !isIcebergCommitError(execution) {
+			return nil, nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil, adbc.Error{
+				Code: adbc.StatusCancelled,
+				Msg:  ctx.Err().Error(),
+			}
+		case <-time.After(icebergCommitRetryWait(attempt)):
+		}
+	}
+}
+
+// isIcebergCommitError reports whether a failed query was rejected by a
+// conflicting Iceberg commit.
+func isIcebergCommitError(execution *types.QueryExecution) bool {
+	return execution != nil && execution.Status != nil && execution.Status.StateChangeReason != nil &&
+		strings.Contains(*execution.Status.StateChangeReason, "ICEBERG_COMMIT_ERROR")
 }
 
 func (s *statementImpl) startQuery(ctx context.Context) (*string, error) {
@@ -167,7 +206,8 @@ func (s *statementImpl) startQuery(ctx context.Context) (*string, error) {
 	return out.QueryExecutionId, nil
 }
 
-// waitForQuery polls the query until it finishes and returns its final execution.
+// waitForQuery polls the query until it finishes and returns its final execution,
+// which a FAILED query returns alongside the error.
 func (s *statementImpl) waitForQuery(ctx context.Context, execID *string) (*types.QueryExecution, error) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -208,7 +248,7 @@ func (s *statementImpl) waitForQuery(ctx context.Context, execID *string) (*type
 			if out.QueryExecution.Status.StateChangeReason != nil {
 				reason = *out.QueryExecution.Status.StateChangeReason
 			}
-			return nil, adbc.Error{
+			return out.QueryExecution, adbc.Error{
 				Code: adbc.StatusIO,
 				Msg:  fmt.Sprintf("[athena] query failed: %s", reason),
 			}
@@ -219,7 +259,7 @@ func (s *statementImpl) waitForQuery(ctx context.Context, execID *string) (*type
 			}
 		default:
 			// QUEUED or RUNNING — reset timer and poll again.
-			timer.Reset(500 * time.Millisecond)
+			timer.Reset(s.conn.db.pollInterval)
 		}
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/adbc-drivers/driverbase-go/driverbase"
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -437,6 +438,72 @@ func TestFunctional_NoUpdateCountWithoutOne(t *testing.T) {
 	assert.False(t, ok)
 	id, _ := md.GetValue(MetadataKeyQueryID)
 	assert.Equal(t, "exec-ddl", id)
+}
+
+// icebergConflictOnce fails the first query it sees with the given reason and
+// lets every later one succeed; starts counts the StartQueryExecution calls.
+func icebergConflictOnce(reason string, starts *int32) *mockAthenaClient {
+	return &mockAthenaClient{
+		startQueryExecutionFn: func(_ context.Context, _ *athenaSDK.StartQueryExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StartQueryExecutionOutput, error) {
+			n := atomic.AddInt32(starts, 1)
+			return &athenaSDK.StartQueryExecutionOutput{QueryExecutionId: strp(fmt.Sprintf("exec-%d", n))}, nil
+		},
+		getQueryExecutionFn: func(_ context.Context, params *athenaSDK.GetQueryExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.GetQueryExecutionOutput, error) {
+			status := &types.QueryExecutionStatus{State: types.QueryExecutionStateSucceeded}
+			if *params.QueryExecutionId == "exec-1" {
+				status = &types.QueryExecutionStatus{State: types.QueryExecutionStateFailed, StateChangeReason: strp(reason)}
+			}
+			return &athenaSDK.GetQueryExecutionOutput{QueryExecution: &types.QueryExecution{Status: status}}, nil
+		},
+		getQueryResultsFn: func(_ context.Context, _ *athenaSDK.GetQueryResultsInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.GetQueryResultsOutput, error) {
+			return &athenaSDK.GetQueryResultsOutput{ResultSet: &types.ResultSet{}}, nil
+		},
+	}
+}
+
+// TestFunctional_IcebergCommitRetries verifies that a query failing with
+// ICEBERG_COMMIT_ERROR is run again only while retries are configured, and that
+// other failures are not retried.
+func TestFunctional_IcebergCommitRetries(t *testing.T) {
+	wait := icebergCommitRetryWait
+	icebergCommitRetryWait = func(int) time.Duration { return 0 }
+	t.Cleanup(func() { icebergCommitRetryWait = wait })
+
+	const conflict = "ICEBERG_COMMIT_ERROR: Failed to commit Iceberg update to table: t"
+	for _, tc := range []struct {
+		name       string
+		reason     string
+		retries    int
+		wantStarts int32
+		wantErr    bool
+	}{
+		{"retried", conflict, 3, 2, false},
+		{"no retries configured", conflict, 0, 1, true},
+		{"other failure", "HIVE_METASTORE_ERROR: table not found", 3, 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var starts int32
+			stmt := newTestStmt(t, icebergConflictOnce(tc.reason, &starts))
+			stmt.conn.db.icebergCommitRetries = tc.retries
+			require.NoError(t, stmt.SetSqlQuery("INSERT INTO t SELECT 1"))
+
+			_, err := stmt.ExecuteUpdate(context.Background())
+			assert.Equal(t, tc.wantErr, err != nil, err)
+			assert.Equal(t, tc.wantStarts, atomic.LoadInt32(&starts))
+		})
+	}
+}
+
+// TestIcebergCommitRetryWait verifies the backoff ceiling: 2^(attempt-1) seconds,
+// at most 100 s.
+func TestIcebergCommitRetryWait(t *testing.T) {
+	for attempt, ceiling := range map[int]time.Duration{1: time.Second, 3: 4 * time.Second, 10: 100 * time.Second} {
+		for range 100 {
+			wait := icebergCommitRetryWait(attempt)
+			assert.GreaterOrEqual(t, wait, time.Duration(0))
+			assert.Less(t, wait, ceiling)
+		}
+	}
 }
 
 // TestFunctional_GetTableSchema verifies GetTableSchema calls GetTableMetadata

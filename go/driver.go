@@ -49,6 +49,29 @@ const (
 	OptionSessionToken = "athena.aws.session_token"
 	// OptionProfileName is the named AWS profile to use.
 	OptionProfileName = "athena.aws.profile"
+	// OptionRoleARN is an IAM role to assume on top of the credentials of the
+	// selected auth type. Every AWS client of the driver uses the assumed role.
+	OptionRoleARN = "athena.aws.role_arn"
+	// OptionRoleExternalID is the external ID passed to AssumeRole.
+	OptionRoleExternalID = "athena.aws.role_external_id"
+	// OptionRoleSessionName is the AssumeRole session name.
+	OptionRoleSessionName = "athena.aws.role_session_name"
+	// OptionRoleDuration is the lifetime of the assumed role's credentials, as a
+	// Go duration ("1h"); the SDK refreshes them before they expire.
+	OptionRoleDuration = "athena.aws.role_duration"
+	// OptionMaxAttempts is the maximum number of attempts of each AWS API request,
+	// the first one included, for the SDK's standard retryer (default 3).
+	OptionMaxAttempts = "athena.aws.max_attempts"
+	// OptionEndpointURL overrides the endpoint of the Athena API, e.g. a VPC
+	// interface endpoint. Glue, S3 and STS keep their default endpoints.
+	OptionEndpointURL = "athena.endpoint_url"
+	// OptionPollInterval is the interval between query status checks, as a Go
+	// duration (default "500ms").
+	OptionPollInterval = "athena.poll_interval"
+	// OptionIcebergCommitRetries is how many times a query that fails with
+	// ICEBERG_COMMIT_ERROR, a commit conflict with a concurrent Iceberg write, is
+	// run again (default 0).
+	OptionIcebergCommitRetries = "athena.iceberg_commit_retries"
 
 	// MetadataKeyQueryID is the query result schema metadata key holding the
 	// query execution ID.
@@ -116,6 +139,7 @@ func (d *driverImpl) NewDatabaseWithContext(ctx context.Context, opts map[string
 	db := &databaseImpl{
 		DatabaseImplBase: dbBase,
 		authType:         AuthTypeDefault,
+		pollInterval:     defaultPollInterval,
 	}
 
 	if err := db.SetOptions(opts); err != nil {
