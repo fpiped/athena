@@ -41,4 +41,9 @@ type athenaClientAPI interface {
 	GetQueryResults(ctx context.Context, params *athenaSDK.GetQueryResultsInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetQueryResultsOutput, error)
 	GetDataCatalog(ctx context.Context, params *athenaSDK.GetDataCatalogInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetDataCatalogOutput, error)
 	GetWorkGroup(ctx context.Context, params *athenaSDK.GetWorkGroupInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetWorkGroupOutput, error)
+	StartSession(ctx context.Context, params *athenaSDK.StartSessionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartSessionOutput, error)
+	GetSessionStatus(ctx context.Context, params *athenaSDK.GetSessionStatusInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetSessionStatusOutput, error)
+	StartCalculationExecution(ctx context.Context, params *athenaSDK.StartCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartCalculationExecutionOutput, error)
+	GetCalculationExecution(ctx context.Context, params *athenaSDK.GetCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetCalculationExecutionOutput, error)
+	StopCalculationExecution(ctx context.Context, params *athenaSDK.StopCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StopCalculationExecutionOutput, error)
 }

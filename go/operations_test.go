@@ -251,6 +251,63 @@ func TestOperation_AthenaGetWorkGroupAndDataCatalog(t *testing.T) {
 	assert.Equal(t, "123", cat.DataCatalog.Parameters["catalog-id"])
 }
 
+func TestOperation_AthenaSparkSessionAndCalculation(t *testing.T) {
+	athena := &mockAthenaClient{
+		startSessionFn: func(_ context.Context, in *athenaSDK.StartSessionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StartSessionOutput, error) {
+			assert.Equal(t, "spark-wg", *in.WorkGroup)
+			assert.Equal(t, int32(2), *in.EngineConfiguration.MaxConcurrentDpus)
+			return &athenaSDK.StartSessionOutput{SessionId: strp("s-1"), State: athenatypes.SessionStateCreating}, nil
+		},
+		getSessionStatusFn: func(_ context.Context, in *athenaSDK.GetSessionStatusInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.GetSessionStatusOutput, error) {
+			assert.Equal(t, "s-1", *in.SessionId)
+			return &athenaSDK.GetSessionStatusOutput{SessionId: in.SessionId, Status: &athenatypes.SessionStatus{State: athenatypes.SessionStateIdle}}, nil
+		},
+		startCalculationFn: func(_ context.Context, in *athenaSDK.StartCalculationExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StartCalculationExecutionOutput, error) {
+			assert.Equal(t, "print(1)", *in.CodeBlock)
+			return &athenaSDK.StartCalculationExecutionOutput{CalculationExecutionId: strp("c-1")}, nil
+		},
+		getCalculationFn: func(_ context.Context, in *athenaSDK.GetCalculationExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.GetCalculationExecutionOutput, error) {
+			return &athenaSDK.GetCalculationExecutionOutput{
+				CalculationExecutionId: in.CalculationExecutionId,
+				Status:                 &athenatypes.CalculationStatus{State: athenatypes.CalculationExecutionStateCompleted},
+				Result:                 &athenatypes.CalculationResult{StdErrorS3Uri: strp("s3://out/stderr")},
+			}, nil
+		},
+		stopCalculationFn: func(_ context.Context, in *athenaSDK.StopCalculationExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StopCalculationExecutionOutput, error) {
+			return &athenaSDK.StopCalculationExecutionOutput{State: athenatypes.CalculationExecutionStateCanceling}, nil
+		},
+	}
+
+	var session struct{ SessionId, State string }
+	runOperationJSON(t, newOperationStmt(t, athena, &awsClients{}, OperationAthenaStartSession,
+		`{"WorkGroup":"spark-wg","EngineConfiguration":{"CoordinatorDpuSize":1,"MaxConcurrentDpus":2,"DefaultExecutorDpuSize":1}}`), &session)
+	assert.Equal(t, "s-1", session.SessionId)
+	assert.Equal(t, "CREATING", session.State)
+
+	var status struct{ Status struct{ State string } }
+	runOperationJSON(t, newOperationStmt(t, athena, &awsClients{}, OperationAthenaGetSessionStatus, `{"SessionId":"s-1"}`), &status)
+	assert.Equal(t, "IDLE", status.Status.State)
+
+	var started struct{ CalculationExecutionId string }
+	runOperationJSON(t, newOperationStmt(t, athena, &awsClients{}, OperationAthenaStartCalculationExecution,
+		`{"SessionId":"s-1","CodeBlock":"print(1)"}`), &started)
+	assert.Equal(t, "c-1", started.CalculationExecutionId)
+
+	var calculation struct {
+		Status struct{ State string }
+		Result struct{ StdErrorS3Uri string }
+	}
+	runOperationJSON(t, newOperationStmt(t, athena, &awsClients{}, OperationAthenaGetCalculationExecution,
+		`{"CalculationExecutionId":"c-1"}`), &calculation)
+	assert.Equal(t, "COMPLETED", calculation.Status.State)
+	assert.Equal(t, "s3://out/stderr", calculation.Result.StdErrorS3Uri)
+
+	var stopped struct{ State string }
+	runOperationJSON(t, newOperationStmt(t, athena, &awsClients{}, OperationAthenaStopCalculationExecution,
+		`{"CalculationExecutionId":"c-1"}`), &stopped)
+	assert.Equal(t, "CANCELING", stopped.State)
+}
+
 func TestOperation_GlueGetTable(t *testing.T) {
 	glue := &mockGlueClient{getTableFn: func(in *glueSDK.GetTableInput) (*glueSDK.GetTableOutput, error) {
 		assert.Equal(t, "db", *in.DatabaseName)

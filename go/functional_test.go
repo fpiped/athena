@@ -51,6 +51,11 @@ type mockAthenaClient struct {
 	listTableMetadataFn   func(ctx context.Context, params *athenaSDK.ListTableMetadataInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.ListTableMetadataOutput, error)
 	getDataCatalogFn      func(ctx context.Context, params *athenaSDK.GetDataCatalogInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetDataCatalogOutput, error)
 	getWorkGroupFn        func(ctx context.Context, params *athenaSDK.GetWorkGroupInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetWorkGroupOutput, error)
+	startSessionFn        func(ctx context.Context, params *athenaSDK.StartSessionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartSessionOutput, error)
+	getSessionStatusFn    func(ctx context.Context, params *athenaSDK.GetSessionStatusInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetSessionStatusOutput, error)
+	startCalculationFn    func(ctx context.Context, params *athenaSDK.StartCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartCalculationExecutionOutput, error)
+	getCalculationFn      func(ctx context.Context, params *athenaSDK.GetCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetCalculationExecutionOutput, error)
+	stopCalculationFn     func(ctx context.Context, params *athenaSDK.StopCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StopCalculationExecutionOutput, error)
 }
 
 func (m *mockAthenaClient) StartQueryExecution(ctx context.Context, params *athenaSDK.StartQueryExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartQueryExecutionOutput, error) {
@@ -87,6 +92,21 @@ func (m *mockAthenaClient) GetDataCatalog(ctx context.Context, params *athenaSDK
 
 func (m *mockAthenaClient) GetWorkGroup(ctx context.Context, params *athenaSDK.GetWorkGroupInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetWorkGroupOutput, error) {
 	return m.getWorkGroupFn(ctx, params, optFns...)
+}
+func (m *mockAthenaClient) StartSession(ctx context.Context, params *athenaSDK.StartSessionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartSessionOutput, error) {
+	return m.startSessionFn(ctx, params, optFns...)
+}
+func (m *mockAthenaClient) GetSessionStatus(ctx context.Context, params *athenaSDK.GetSessionStatusInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetSessionStatusOutput, error) {
+	return m.getSessionStatusFn(ctx, params, optFns...)
+}
+func (m *mockAthenaClient) StartCalculationExecution(ctx context.Context, params *athenaSDK.StartCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StartCalculationExecutionOutput, error) {
+	return m.startCalculationFn(ctx, params, optFns...)
+}
+func (m *mockAthenaClient) GetCalculationExecution(ctx context.Context, params *athenaSDK.GetCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.GetCalculationExecutionOutput, error) {
+	return m.getCalculationFn(ctx, params, optFns...)
+}
+func (m *mockAthenaClient) StopCalculationExecution(ctx context.Context, params *athenaSDK.StopCalculationExecutionInput, optFns ...func(*athenaSDK.Options)) (*athenaSDK.StopCalculationExecutionOutput, error) {
+	return m.stopCalculationFn(ctx, params, optFns...)
 }
 
 // ---------------------------------------------------------------------------

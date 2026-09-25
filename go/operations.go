@@ -68,6 +68,20 @@ const (
 	OperationAthenaGetDataCatalog = "athena.get_data_catalog"
 	// OperationAthenaGetWorkGroup: `{"WorkGroup"}` -> `{"WorkGroup": {...}}`.
 	OperationAthenaGetWorkGroup = "athena.get_work_group"
+	// OperationAthenaStartSession: `{"WorkGroup", "EngineConfiguration", ...}` ->
+	// `{"SessionId", "State"}`. The Spark sessions and calculations below run the
+	// Python models of a Spark-enabled work group.
+	OperationAthenaStartSession = "athena.start_session"
+	// OperationAthenaGetSessionStatus: `{"SessionId"}` -> `{"Status": {"State", ...}}`.
+	OperationAthenaGetSessionStatus = "athena.get_session_status"
+	// OperationAthenaStartCalculationExecution: `{"SessionId", "CodeBlock"}` ->
+	// `{"CalculationExecutionId", "State"}`.
+	OperationAthenaStartCalculationExecution = "athena.start_calculation_execution"
+	// OperationAthenaGetCalculationExecution: `{"CalculationExecutionId"}` ->
+	// `{"Status": {"State", ...}, "Result": {...}}`.
+	OperationAthenaGetCalculationExecution = "athena.get_calculation_execution"
+	// OperationAthenaStopCalculationExecution: `{"CalculationExecutionId"}` -> `{"State"}`.
+	OperationAthenaStopCalculationExecution = "athena.stop_calculation_execution"
 	// OperationGlueGetTable: `{"CatalogId"?, "DatabaseName", "Name"}` ->
 	// `{"Table": {...}}`, or `{"Table": null}` when the table does not exist.
 	OperationGlueGetTable = "glue.get_table"
@@ -112,21 +126,26 @@ const (
 // knownOperations is checked before any AWS client is built, so an unknown
 // name fails with InvalidArgument rather than with a credentials error.
 var knownOperations = map[string]bool{
-	OperationStsGetCallerIdentity:     true,
-	OperationAthenaGetDataCatalog:     true,
-	OperationAthenaGetWorkGroup:       true,
-	OperationGlueGetTable:             true,
-	OperationGlueDeleteTable:          true,
-	OperationGlueDeleteDatabase:       true,
-	OperationGlueGetTableVersions:     true,
-	OperationGlueDeleteTableVersion:   true,
-	OperationGlueGetPartitions:        true,
-	OperationGlueBatchDeletePartition: true,
-	OperationGlueBatchCreatePartition: true,
-	OperationGlueUpdateTable:          true,
-	OperationS3ListObjects:            true,
-	OperationS3DeleteObjects:          true,
-	OperationS3PutObject:              true,
+	OperationStsGetCallerIdentity:            true,
+	OperationAthenaGetDataCatalog:            true,
+	OperationAthenaGetWorkGroup:              true,
+	OperationAthenaStartSession:              true,
+	OperationAthenaGetSessionStatus:          true,
+	OperationAthenaStartCalculationExecution: true,
+	OperationAthenaGetCalculationExecution:   true,
+	OperationAthenaStopCalculationExecution:  true,
+	OperationGlueGetTable:                    true,
+	OperationGlueDeleteTable:                 true,
+	OperationGlueDeleteDatabase:              true,
+	OperationGlueGetTableVersions:            true,
+	OperationGlueDeleteTableVersion:          true,
+	OperationGlueGetPartitions:               true,
+	OperationGlueBatchDeletePartition:        true,
+	OperationGlueBatchCreatePartition:        true,
+	OperationGlueUpdateTable:                 true,
+	OperationS3ListObjects:                   true,
+	OperationS3DeleteObjects:                 true,
+	OperationS3PutObject:                     true,
 }
 
 // operationResultSchema is the schema of every operation result: one utf8
@@ -257,6 +276,61 @@ func (s *statementImpl) runOperation(ctx context.Context) ([]byte, error) {
 			return nil, operationError(op, err)
 		}
 		out = workGroup
+
+	case OperationAthenaStartSession:
+		var in athenaSDK.StartSessionInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		session, err := s.conn.athenaClient.StartSession(ctx, &in)
+		if err != nil {
+			return nil, operationError(op, err)
+		}
+		out = session
+
+	case OperationAthenaGetSessionStatus:
+		var in athenaSDK.GetSessionStatusInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		status, err := s.conn.athenaClient.GetSessionStatus(ctx, &in)
+		if err != nil {
+			return nil, operationError(op, err)
+		}
+		out = status
+
+	case OperationAthenaStartCalculationExecution:
+		var in athenaSDK.StartCalculationExecutionInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		calculation, err := s.conn.athenaClient.StartCalculationExecution(ctx, &in)
+		if err != nil {
+			return nil, operationError(op, err)
+		}
+		out = calculation
+
+	case OperationAthenaGetCalculationExecution:
+		var in athenaSDK.GetCalculationExecutionInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		calculation, err := s.conn.athenaClient.GetCalculationExecution(ctx, &in)
+		if err != nil {
+			return nil, operationError(op, err)
+		}
+		out = calculation
+
+	case OperationAthenaStopCalculationExecution:
+		var in athenaSDK.StopCalculationExecutionInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		stopped, err := s.conn.athenaClient.StopCalculationExecution(ctx, &in)
+		if err != nil {
+			return nil, operationError(op, err)
+		}
+		out = stopped
 
 	case OperationGlueGetTable:
 		var in glueSDK.GetTableInput
