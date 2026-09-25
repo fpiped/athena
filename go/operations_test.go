@@ -33,6 +33,8 @@ import (
 	athenatypes "github.com/aws/aws-sdk-go-v2/service/athena/types"
 	glueSDK "github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	lakeformationSDK "github.com/aws/aws-sdk-go-v2/service/lakeformation"
+	lftypes "github.com/aws/aws-sdk-go-v2/service/lakeformation/types"
 	s3SDK "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	stsSDK "github.com/aws/aws-sdk-go-v2/service/sts"
@@ -102,6 +104,71 @@ type mockStsClient struct {
 
 func (m *mockStsClient) GetCallerIdentity(_ context.Context, in *stsSDK.GetCallerIdentityInput, _ ...func(*stsSDK.Options)) (*stsSDK.GetCallerIdentityOutput, error) {
 	return m.getCallerIdentityFn(in)
+}
+
+// mockLakeFormationClient records the calls it serves; the list calls answer from
+// the pages given, one page per call.
+type mockLakeFormationClient struct {
+	calls           []string
+	lfTags          *lakeformationSDK.GetResourceLFTagsOutput
+	filterPages     [][]lftypes.DataCellsFilter
+	permissionPages [][]lftypes.PrincipalResourcePermissions
+	added           *lakeformationSDK.AddLFTagsToResourceInput
+	granted         *lakeformationSDK.BatchGrantPermissionsInput
+}
+
+func (m *mockLakeFormationClient) AddLFTagsToResource(_ context.Context, in *lakeformationSDK.AddLFTagsToResourceInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.AddLFTagsToResourceOutput, error) {
+	m.calls, m.added = append(m.calls, "add"), in
+	return &lakeformationSDK.AddLFTagsToResourceOutput{}, nil
+}
+func (m *mockLakeFormationClient) RemoveLFTagsFromResource(_ context.Context, _ *lakeformationSDK.RemoveLFTagsFromResourceInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.RemoveLFTagsFromResourceOutput, error) {
+	m.calls = append(m.calls, "remove")
+	return &lakeformationSDK.RemoveLFTagsFromResourceOutput{}, nil
+}
+func (m *mockLakeFormationClient) GetResourceLFTags(_ context.Context, _ *lakeformationSDK.GetResourceLFTagsInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.GetResourceLFTagsOutput, error) {
+	m.calls = append(m.calls, "get")
+	return m.lfTags, nil
+}
+func (m *mockLakeFormationClient) ListDataCellsFilter(_ context.Context, in *lakeformationSDK.ListDataCellsFilterInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.ListDataCellsFilterOutput, error) {
+	page, next := pageAt(in.NextToken, len(m.filterPages))
+	return &lakeformationSDK.ListDataCellsFilterOutput{DataCellsFilters: m.filterPages[page], NextToken: next}, nil
+}
+func (m *mockLakeFormationClient) CreateDataCellsFilter(_ context.Context, _ *lakeformationSDK.CreateDataCellsFilterInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.CreateDataCellsFilterOutput, error) {
+	m.calls = append(m.calls, "create_filter")
+	return &lakeformationSDK.CreateDataCellsFilterOutput{}, nil
+}
+func (m *mockLakeFormationClient) UpdateDataCellsFilter(_ context.Context, _ *lakeformationSDK.UpdateDataCellsFilterInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.UpdateDataCellsFilterOutput, error) {
+	m.calls = append(m.calls, "update_filter")
+	return &lakeformationSDK.UpdateDataCellsFilterOutput{}, nil
+}
+func (m *mockLakeFormationClient) DeleteDataCellsFilter(_ context.Context, _ *lakeformationSDK.DeleteDataCellsFilterInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.DeleteDataCellsFilterOutput, error) {
+	m.calls = append(m.calls, "delete_filter")
+	return &lakeformationSDK.DeleteDataCellsFilterOutput{}, nil
+}
+func (m *mockLakeFormationClient) ListPermissions(_ context.Context, in *lakeformationSDK.ListPermissionsInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.ListPermissionsOutput, error) {
+	page, next := pageAt(in.NextToken, len(m.permissionPages))
+	return &lakeformationSDK.ListPermissionsOutput{PrincipalResourcePermissions: m.permissionPages[page], NextToken: next}, nil
+}
+func (m *mockLakeFormationClient) BatchGrantPermissions(_ context.Context, in *lakeformationSDK.BatchGrantPermissionsInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.BatchGrantPermissionsOutput, error) {
+	m.calls, m.granted = append(m.calls, "grant"), in
+	return &lakeformationSDK.BatchGrantPermissionsOutput{}, nil
+}
+func (m *mockLakeFormationClient) BatchRevokePermissions(_ context.Context, _ *lakeformationSDK.BatchRevokePermissionsInput, _ ...func(*lakeformationSDK.Options)) (*lakeformationSDK.BatchRevokePermissionsOutput, error) {
+	m.calls = append(m.calls, "revoke")
+	return &lakeformationSDK.BatchRevokePermissionsOutput{}, nil
+}
+
+// pageAt maps a NextToken ("1", "2", ...) to a page index and the next token.
+func pageAt(token *string, pages int) (int, *string) {
+	page := 0
+	if token != nil {
+		page, _ = strconv.Atoi(*token)
+	}
+	if page+1 < pages {
+		next := strconv.Itoa(page + 1)
+		return page, &next
+	}
+	return page, nil
 }
 
 // newOperationStmt builds a statement whose connection carries the given mocks
@@ -306,6 +373,64 @@ func TestOperation_AthenaSparkSessionAndCalculation(t *testing.T) {
 	runOperationJSON(t, newOperationStmt(t, athena, &awsClients{}, OperationAthenaStopCalculationExecution,
 		`{"CalculationExecutionId":"c-1"}`), &stopped)
 	assert.Equal(t, "CANCELING", stopped.State)
+}
+
+func TestOperation_LakeFormation(t *testing.T) {
+	lf := &mockLakeFormationClient{
+		lfTags: &lakeformationSDK.GetResourceLFTagsOutput{
+			LFTagsOnTable: []lftypes.LFTagPair{{TagKey: strp("tier"), TagValues: []string{"lab"}}},
+		},
+		filterPages: [][]lftypes.DataCellsFilter{
+			{{Name: strp("f1")}},
+			{{Name: strp("f2")}},
+		},
+		permissionPages: [][]lftypes.PrincipalResourcePermissions{
+			{{Principal: &lftypes.DataLakePrincipal{DataLakePrincipalIdentifier: strp("arn:aws:iam::1:role/a")}}},
+			{{Principal: &lftypes.DataLakePrincipal{DataLakePrincipalIdentifier: strp("arn:aws:iam::1:role/b")}}},
+		},
+	}
+	aws := &awsClients{lakeformation: lf}
+	table := `{"Table":{"DatabaseName":"db","Name":"t"}}`
+
+	var failures struct{ Failures []any }
+	runOperationJSON(t, newOperationStmt(t, nil, aws, OperationLakeFormationAddLFTagsToResource,
+		`{"Resource":{"Table":{"DatabaseName":"db","Name":"t"}},"LFTags":[{"TagKey":"tier","TagValues":["lab"]}]}`), &failures)
+	assert.Equal(t, "t", *lf.added.Resource.Table.Name)
+	assert.Equal(t, []string{"lab"}, lf.added.LFTags[0].TagValues)
+
+	var tags struct{ LFTagsOnTable []struct{ TagKey string } }
+	runOperationJSON(t, newOperationStmt(t, nil, aws, OperationLakeFormationGetResourceLFTags, `{"Resource":`+table+`}`), &tags)
+	assert.Equal(t, "tier", tags.LFTagsOnTable[0].TagKey)
+
+	var filters struct{ DataCellsFilters []struct{ Name string } }
+	runOperationJSON(t, newOperationStmt(t, nil, aws, OperationLakeFormationListDataCellsFilter,
+		`{"Table":{"DatabaseName":"db","Name":"t"}}`), &filters)
+	assert.Len(t, filters.DataCellsFilters, 2, "every page")
+
+	var permissions struct {
+		PrincipalResourcePermissions []struct {
+			Principal struct{ DataLakePrincipalIdentifier string }
+		}
+	}
+	runOperationJSON(t, newOperationStmt(t, nil, aws, OperationLakeFormationListPermissions,
+		`{"Resource":{"DataCellsFilter":{"DatabaseName":"db","TableName":"t","Name":"f1"}}}`), &permissions)
+	assert.Len(t, permissions.PrincipalResourcePermissions, 2, "every page")
+
+	runOperationJSON(t, newOperationStmt(t, nil, aws, OperationLakeFormationBatchGrantPermissions,
+		`{"Entries":[{"Id":"0","Principal":{"DataLakePrincipalIdentifier":"arn:aws:iam::1:role/a"},"Permissions":["SELECT"]}]}`), &failures)
+	assert.Equal(t, []lftypes.Permission{lftypes.PermissionSelect}, lf.granted.Entries[0].Permissions)
+
+	for _, op := range []string{
+		OperationLakeFormationRemoveLFTagsFromResource,
+		OperationLakeFormationCreateDataCellsFilter,
+		OperationLakeFormationUpdateDataCellsFilter,
+		OperationLakeFormationDeleteDataCellsFilter,
+		OperationLakeFormationBatchRevokePermissions,
+	} {
+		var empty map[string]any
+		runOperationJSON(t, newOperationStmt(t, nil, aws, op, `{}`), &empty)
+	}
+	assert.Equal(t, []string{"add", "get", "grant", "remove", "create_filter", "update_filter", "delete_filter", "revoke"}, lf.calls)
 }
 
 func TestOperation_GlueGetTable(t *testing.T) {

@@ -32,6 +32,8 @@ import (
 	athenaSDK "github.com/aws/aws-sdk-go-v2/service/athena"
 	glueSDK "github.com/aws/aws-sdk-go-v2/service/glue"
 	gluetypes "github.com/aws/aws-sdk-go-v2/service/glue/types"
+	lakeformationSDK "github.com/aws/aws-sdk-go-v2/service/lakeformation"
+	lftypes "github.com/aws/aws-sdk-go-v2/service/lakeformation/types"
 	s3SDK "github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	stsSDK "github.com/aws/aws-sdk-go-v2/service/sts"
@@ -118,6 +120,34 @@ const (
 	// "SSEKMSKeyId"?, "ACL"?, "StorageClass"?, "ContentType"?, "BucketKeyEnabled"?}` -> `{}`.
 	OperationS3PutObject = "s3.put_object"
 
+	// The Lake Formation operations below take and return the API shapes; the two
+	// list calls return every page. dbt-athena manages LF-Tags and data cell
+	// filters with them.
+
+	// OperationLakeFormationAddLFTagsToResource: `{"Resource", "LFTags"}` -> `{"Failures"}`.
+	OperationLakeFormationAddLFTagsToResource = "lakeformation.add_lf_tags_to_resource"
+	// OperationLakeFormationRemoveLFTagsFromResource: `{"Resource", "LFTags"}` -> `{"Failures"}`.
+	OperationLakeFormationRemoveLFTagsFromResource = "lakeformation.remove_lf_tags_from_resource"
+	// OperationLakeFormationGetResourceLFTags: `{"Resource"}` ->
+	// `{"LFTagOnDatabase", "LFTagsOnTable", "LFTagsOnColumns"}`.
+	OperationLakeFormationGetResourceLFTags = "lakeformation.get_resource_lf_tags"
+	// OperationLakeFormationListDataCellsFilter: `{"Table"}` -> `{"DataCellsFilters"}`, all pages.
+	OperationLakeFormationListDataCellsFilter = "lakeformation.list_data_cells_filter"
+	// OperationLakeFormationCreateDataCellsFilter: `{"TableData"}` -> `{}`.
+	OperationLakeFormationCreateDataCellsFilter = "lakeformation.create_data_cells_filter"
+	// OperationLakeFormationUpdateDataCellsFilter: `{"TableData"}` -> `{}`.
+	OperationLakeFormationUpdateDataCellsFilter = "lakeformation.update_data_cells_filter"
+	// OperationLakeFormationDeleteDataCellsFilter: `{"TableCatalogId", "DatabaseName",
+	// "TableName", "Name"}` -> `{}`.
+	OperationLakeFormationDeleteDataCellsFilter = "lakeformation.delete_data_cells_filter"
+	// OperationLakeFormationListPermissions: `{"Resource", ...}` ->
+	// `{"PrincipalResourcePermissions"}`, all pages.
+	OperationLakeFormationListPermissions = "lakeformation.list_permissions"
+	// OperationLakeFormationBatchGrantPermissions: `{"CatalogId"?, "Entries"}` -> `{"Failures"}`.
+	OperationLakeFormationBatchGrantPermissions = "lakeformation.batch_grant_permissions"
+	// OperationLakeFormationBatchRevokePermissions: `{"CatalogId"?, "Entries"}` -> `{"Failures"}`.
+	OperationLakeFormationBatchRevokePermissions = "lakeformation.batch_revoke_permissions"
+
 	glueBatchDeletePartitionLimit = 25
 	glueBatchCreatePartitionLimit = 100
 	s3DeleteObjectsLimit          = 1000
@@ -146,6 +176,17 @@ var knownOperations = map[string]bool{
 	OperationS3ListObjects:                   true,
 	OperationS3DeleteObjects:                 true,
 	OperationS3PutObject:                     true,
+
+	OperationLakeFormationAddLFTagsToResource:      true,
+	OperationLakeFormationRemoveLFTagsFromResource: true,
+	OperationLakeFormationGetResourceLFTags:        true,
+	OperationLakeFormationListDataCellsFilter:      true,
+	OperationLakeFormationCreateDataCellsFilter:    true,
+	OperationLakeFormationUpdateDataCellsFilter:    true,
+	OperationLakeFormationDeleteDataCellsFilter:    true,
+	OperationLakeFormationListPermissions:          true,
+	OperationLakeFormationBatchGrantPermissions:    true,
+	OperationLakeFormationBatchRevokePermissions:   true,
 }
 
 // operationResultSchema is the schema of every operation result: one utf8
@@ -180,12 +221,28 @@ type stsClientAPI interface {
 	GetCallerIdentity(ctx context.Context, params *stsSDK.GetCallerIdentityInput, optFns ...func(*stsSDK.Options)) (*stsSDK.GetCallerIdentityOutput, error)
 }
 
+// lakeformationClientAPI is the subset of the Lake Formation SDK client the
+// operations use; the paginator constructors accept it too.
+type lakeformationClientAPI interface {
+	AddLFTagsToResource(ctx context.Context, params *lakeformationSDK.AddLFTagsToResourceInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.AddLFTagsToResourceOutput, error)
+	RemoveLFTagsFromResource(ctx context.Context, params *lakeformationSDK.RemoveLFTagsFromResourceInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.RemoveLFTagsFromResourceOutput, error)
+	GetResourceLFTags(ctx context.Context, params *lakeformationSDK.GetResourceLFTagsInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.GetResourceLFTagsOutput, error)
+	ListDataCellsFilter(ctx context.Context, params *lakeformationSDK.ListDataCellsFilterInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.ListDataCellsFilterOutput, error)
+	CreateDataCellsFilter(ctx context.Context, params *lakeformationSDK.CreateDataCellsFilterInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.CreateDataCellsFilterOutput, error)
+	UpdateDataCellsFilter(ctx context.Context, params *lakeformationSDK.UpdateDataCellsFilterInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.UpdateDataCellsFilterOutput, error)
+	DeleteDataCellsFilter(ctx context.Context, params *lakeformationSDK.DeleteDataCellsFilterInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.DeleteDataCellsFilterOutput, error)
+	ListPermissions(ctx context.Context, params *lakeformationSDK.ListPermissionsInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.ListPermissionsOutput, error)
+	BatchGrantPermissions(ctx context.Context, params *lakeformationSDK.BatchGrantPermissionsInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.BatchGrantPermissionsOutput, error)
+	BatchRevokePermissions(ctx context.Context, params *lakeformationSDK.BatchRevokePermissionsInput, optFns ...func(*lakeformationSDK.Options)) (*lakeformationSDK.BatchRevokePermissionsOutput, error)
+}
+
 // awsClients holds the non-Athena SDK clients of a connection, built from the
 // database's AWS config on first use.
 type awsClients struct {
-	glue glueClientAPI
-	s3   s3ClientAPI
-	sts  stsClientAPI
+	glue          glueClientAPI
+	s3            s3ClientAPI
+	sts           stsClientAPI
+	lakeformation lakeformationClientAPI
 }
 
 func (c *connectionImpl) clients(ctx context.Context) (*awsClients, error) {
@@ -200,6 +257,8 @@ func (c *connectionImpl) clients(ctx context.Context) (*awsClients, error) {
 		glue: glueSDK.NewFromConfig(cfg),
 		s3:   s3SDK.NewFromConfig(cfg),
 		sts:  stsSDK.NewFromConfig(cfg),
+
+		lakeformation: lakeformationSDK.NewFromConfig(cfg),
 	}
 	return c.aws, nil
 }
@@ -222,6 +281,20 @@ func decodePayload(op string, payload string, into any) error {
 		}
 	}
 	return nil
+}
+
+// callAPI decodes the payload into the API input, makes the call and returns its
+// output: the whole operation, for the calls that need no paging or chunking.
+func callAPI[In, Out, Opt any](ctx context.Context, op, payload string, call func(context.Context, *In, ...func(*Opt)) (*Out, error)) (any, error) {
+	var in In
+	if err := decodePayload(op, payload, &in); err != nil {
+		return nil, err
+	}
+	out, err := call(ctx, &in)
+	if err != nil {
+		return nil, operationError(op, err)
+	}
+	return out, nil
 }
 
 func isGlueNotFound(err error) bool {
@@ -278,59 +351,64 @@ func (s *statementImpl) runOperation(ctx context.Context) ([]byte, error) {
 		out = workGroup
 
 	case OperationAthenaStartSession:
-		var in athenaSDK.StartSessionInput
-		if err := decodePayload(op, s.operationPayload, &in); err != nil {
-			return nil, err
-		}
-		session, err := s.conn.athenaClient.StartSession(ctx, &in)
-		if err != nil {
-			return nil, operationError(op, err)
-		}
-		out = session
-
+		out, err = callAPI(ctx, op, s.operationPayload, s.conn.athenaClient.StartSession)
 	case OperationAthenaGetSessionStatus:
-		var in athenaSDK.GetSessionStatusInput
-		if err := decodePayload(op, s.operationPayload, &in); err != nil {
-			return nil, err
-		}
-		status, err := s.conn.athenaClient.GetSessionStatus(ctx, &in)
-		if err != nil {
-			return nil, operationError(op, err)
-		}
-		out = status
-
+		out, err = callAPI(ctx, op, s.operationPayload, s.conn.athenaClient.GetSessionStatus)
 	case OperationAthenaStartCalculationExecution:
-		var in athenaSDK.StartCalculationExecutionInput
-		if err := decodePayload(op, s.operationPayload, &in); err != nil {
-			return nil, err
-		}
-		calculation, err := s.conn.athenaClient.StartCalculationExecution(ctx, &in)
-		if err != nil {
-			return nil, operationError(op, err)
-		}
-		out = calculation
-
+		out, err = callAPI(ctx, op, s.operationPayload, s.conn.athenaClient.StartCalculationExecution)
 	case OperationAthenaGetCalculationExecution:
-		var in athenaSDK.GetCalculationExecutionInput
-		if err := decodePayload(op, s.operationPayload, &in); err != nil {
-			return nil, err
-		}
-		calculation, err := s.conn.athenaClient.GetCalculationExecution(ctx, &in)
-		if err != nil {
-			return nil, operationError(op, err)
-		}
-		out = calculation
-
+		out, err = callAPI(ctx, op, s.operationPayload, s.conn.athenaClient.GetCalculationExecution)
 	case OperationAthenaStopCalculationExecution:
-		var in athenaSDK.StopCalculationExecutionInput
+		out, err = callAPI(ctx, op, s.operationPayload, s.conn.athenaClient.StopCalculationExecution)
+
+	case OperationLakeFormationAddLFTagsToResource:
+		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.AddLFTagsToResource)
+	case OperationLakeFormationRemoveLFTagsFromResource:
+		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.RemoveLFTagsFromResource)
+	case OperationLakeFormationGetResourceLFTags:
+		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.GetResourceLFTags)
+	case OperationLakeFormationCreateDataCellsFilter:
+		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.CreateDataCellsFilter)
+	case OperationLakeFormationUpdateDataCellsFilter:
+		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.UpdateDataCellsFilter)
+	case OperationLakeFormationDeleteDataCellsFilter:
+		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.DeleteDataCellsFilter)
+	case OperationLakeFormationBatchGrantPermissions:
+		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.BatchGrantPermissions)
+	case OperationLakeFormationBatchRevokePermissions:
+		out, err = callAPI(ctx, op, s.operationPayload, clients.lakeformation.BatchRevokePermissions)
+
+	case OperationLakeFormationListDataCellsFilter:
+		var in lakeformationSDK.ListDataCellsFilterInput
 		if err := decodePayload(op, s.operationPayload, &in); err != nil {
 			return nil, err
 		}
-		stopped, err := s.conn.athenaClient.StopCalculationExecution(ctx, &in)
-		if err != nil {
-			return nil, operationError(op, err)
+		filters := []lftypes.DataCellsFilter{}
+		paginator := lakeformationSDK.NewListDataCellsFilterPaginator(clients.lakeformation, &in)
+		for paginator.HasMorePages() {
+			page, err := paginator.NextPage(ctx)
+			if err != nil {
+				return nil, operationError(op, err)
+			}
+			filters = append(filters, page.DataCellsFilters...)
 		}
-		out = stopped
+		out = map[string]any{"DataCellsFilters": filters}
+
+	case OperationLakeFormationListPermissions:
+		var in lakeformationSDK.ListPermissionsInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		permissions := []lftypes.PrincipalResourcePermissions{}
+		paginator := lakeformationSDK.NewListPermissionsPaginator(clients.lakeformation, &in)
+		for paginator.HasMorePages() {
+			page, err := paginator.NextPage(ctx)
+			if err != nil {
+				return nil, operationError(op, err)
+			}
+			permissions = append(permissions, page.PrincipalResourcePermissions...)
+		}
+		out = map[string]any{"PrincipalResourcePermissions": permissions}
 
 	case OperationGlueGetTable:
 		var in glueSDK.GetTableInput
@@ -557,6 +635,9 @@ func (s *statementImpl) runOperation(ctx context.Context) ([]byte, error) {
 			Code: adbc.StatusInvalidArgument,
 			Msg:  fmt.Sprintf("[athena] unknown %s '%s'", OptionOperation, op),
 		}
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	encoded, err := json.Marshal(out)

@@ -64,8 +64,9 @@ The driver supports three auth modes, set via `athena.OptionAuthType`:
 Athena tables are Glue catalog entries over S3 prefixes, and Athena SQL manages
 neither: dropping a Hive table leaves its files behind, Glue keeps every table
 version, and a seed has to be staged as a CSV object before Athena can read it.
-dbt-athena performs that work through the AWS APIs, and runs Python models as
-calculations in the Spark sessions of a Spark-enabled work group. The driver exposes the same
+dbt-athena performs that work through the AWS APIs, runs Python models as
+calculations in the Spark sessions of a Spark-enabled work group, and manages
+Lake Formation tags and data cell filters. The driver exposes the same
 calls behind two statement options, so a client keeps one set of credentials:
 
 ```go
@@ -91,6 +92,13 @@ and returns 0. Unknown operations and malformed payloads fail with
 | `athena.start_calculation_execution` | `{"SessionId", "CodeBlock"}` | `{"CalculationExecutionId", "State"}` |
 | `athena.get_calculation_execution` | `{"CalculationExecutionId"}` | `{"Status": ..., "Result": ...}` |
 | `athena.stop_calculation_execution` | `{"CalculationExecutionId"}` | `{"State"}` |
+| `lakeformation.add_lf_tags_to_resource` / `remove_lf_tags_from_resource` | `{"Resource", "LFTags"}` | `{"Failures"}` |
+| `lakeformation.get_resource_lf_tags` | `{"Resource"}` | `{"LFTagOnDatabase", "LFTagsOnTable", "LFTagsOnColumns"}` |
+| `lakeformation.list_data_cells_filter` | `{"Table"}` | `{"DataCellsFilters"}`, all pages |
+| `lakeformation.create_data_cells_filter` / `update_data_cells_filter` | `{"TableData"}` | `{}` |
+| `lakeformation.delete_data_cells_filter` | `{"TableCatalogId", "DatabaseName", "TableName", "Name"}` | `{}` |
+| `lakeformation.list_permissions` | `{"Resource", ...}` | `{"PrincipalResourcePermissions"}`, all pages |
+| `lakeformation.batch_grant_permissions` / `batch_revoke_permissions` | `{"CatalogId"?, "Entries"}` | `{"Failures"}` |
 | `glue.get_table` | `{"CatalogId"?, "DatabaseName", "Name"}` | `{"Table": ...}`; `{"Table": null}` when missing |
 | `glue.delete_table` | `{"CatalogId"?, "DatabaseName", "Name"}` | `{"Deleted": bool}`; a missing table is not an error |
 | `glue.delete_database` | `{"CatalogId"?, "Name"}` | `{}` |
