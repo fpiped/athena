@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-go/v18/arrow"
@@ -159,6 +160,9 @@ const (
 	// OperationLakeFormationBatchRevokePermissions: `{"CatalogId"?, "Entries"}` -> `{"Failures"}`.
 	OperationLakeFormationBatchRevokePermissions = "lakeformation.batch_revoke_permissions"
 
+	// cleanupTimeout bounds the cleanup operations, which ignore the statement's cancellation.
+	cleanupTimeout = 10 * time.Second
+
 	glueBatchDeletePartitionLimit = 25
 	glueBatchCreatePartitionLimit = 100
 	s3DeleteObjectsLimit          = 1000
@@ -202,6 +206,14 @@ var knownOperations = map[string]bool{
 	OperationLakeFormationListPermissions:          true,
 	OperationLakeFormationBatchGrantPermissions:    true,
 	OperationLakeFormationBatchRevokePermissions:   true,
+}
+
+// cleanupOperations are how a client ends work it has given up on, often because it
+// is being cancelled itself (dbt cancels every open statement on Ctrl-C): they run to
+// completion, within cleanupTimeout, even when the statement is cancelled.
+var cleanupOperations = map[string]bool{
+	OperationAthenaStopCalculationExecution: true,
+	OperationAthenaTerminateSession:         true,
 }
 
 // operationResultSchema is the schema of every operation result: one utf8
@@ -328,6 +340,11 @@ func (s *statementImpl) runOperation(ctx context.Context) ([]byte, error) {
 			Code: adbc.StatusInvalidArgument,
 			Msg:  fmt.Sprintf("[athena] unknown %s '%s'", OptionOperation, op),
 		}
+	}
+	if cleanupOperations[op] {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), cleanupTimeout)
+		defer cancel()
 	}
 	clients, err := s.conn.clients(ctx)
 	if err != nil {

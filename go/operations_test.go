@@ -395,6 +395,35 @@ func TestOperation_AthenaSparkSessionAndCalculation(t *testing.T) {
 	assert.Equal(t, "TERMINATING", terminated.State)
 }
 
+func TestOperation_CleanupOperationsIgnoreTheStatementsCancellation(t *testing.T) {
+	var calls []string
+	athena := &mockAthenaClient{
+		stopCalculationFn: func(ctx context.Context, _ *athenaSDK.StopCalculationExecutionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.StopCalculationExecutionOutput, error) {
+			calls = append(calls, "stop")
+			require.NoError(t, ctx.Err())
+			return &athenaSDK.StopCalculationExecutionOutput{State: athenatypes.CalculationExecutionStateCanceling}, nil
+		},
+		terminateSessionFn: func(ctx context.Context, _ *athenaSDK.TerminateSessionInput, _ ...func(*athenaSDK.Options)) (*athenaSDK.TerminateSessionOutput, error) {
+			calls = append(calls, "terminate")
+			require.NoError(t, ctx.Err())
+			_, hasDeadline := ctx.Deadline()
+			assert.True(t, hasDeadline)
+			return &athenaSDK.TerminateSessionOutput{State: athenatypes.SessionStateTerminating}, nil
+		},
+	}
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	for op, payload := range map[string]string{
+		OperationAthenaTerminateSession:         `{"SessionId":"s-1"}`,
+		OperationAthenaStopCalculationExecution: `{"CalculationExecutionId":"c-1"}`,
+	} {
+		rdr, _, err := newOperationStmt(t, athena, &awsClients{}, op, payload).ExecuteQuery(cancelled)
+		require.NoError(t, err, op)
+		rdr.Release()
+	}
+	assert.ElementsMatch(t, []string{"stop", "terminate"}, calls)
+}
+
 func TestOperation_LakeFormation(t *testing.T) {
 	lf := &mockLakeFormationClient{
 		lfTags: &lakeformationSDK.GetResourceLFTagsOutput{
