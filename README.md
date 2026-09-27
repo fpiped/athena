@@ -101,6 +101,9 @@ and returns 0. Unknown operations and malformed payloads fail with
 | `lakeformation.list_permissions` | `{"Resource", ...}` | `{"PrincipalResourcePermissions"}`, all pages |
 | `lakeformation.batch_grant_permissions` / `batch_revoke_permissions` | `{"CatalogId"?, "Entries"}` | `{"Failures"}` |
 | `glue.get_table` | `{"CatalogId"?, "DatabaseName", "Name"}` | `{"Table": ...}`; `{"Table": null}` when missing |
+| `glue.get_tables` | `{"CatalogId"?, "DatabaseName", "Expression"?}` | `{"TableList": [...]}`, all pages; empty when the database is missing |
+| `glue.get_database` | `{"CatalogId"?, "Name"}` | `{"Database": ...}`; `{"Database": null}` when missing |
+| `glue.get_databases` | `{"CatalogId"?}` | `{"DatabaseList": [...]}`, all pages |
 | `glue.delete_table` | `{"CatalogId"?, "DatabaseName", "Name"}` | `{"Deleted": bool}`; a missing table is not an error |
 | `glue.delete_database` | `{"CatalogId"?, "Name"}` | `{}` |
 | `glue.get_table_versions` | `{"CatalogId"?, "DatabaseName", "TableName"}` | `{"TableVersions": [...]}` |

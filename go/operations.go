@@ -90,6 +90,14 @@ const (
 	// OperationGlueGetTable: `{"CatalogId"?, "DatabaseName", "Name"}` ->
 	// `{"Table": {...}}`, or `{"Table": null}` when the table does not exist.
 	OperationGlueGetTable = "glue.get_table"
+	// OperationGlueGetTables: `{"CatalogId"?, "DatabaseName", "Expression"?}` ->
+	// `{"TableList": [...]}`, all pages; empty when the database does not exist.
+	OperationGlueGetTables = "glue.get_tables"
+	// OperationGlueGetDatabase: `{"CatalogId"?, "Name"}` -> `{"Database": {...}}`, or
+	// `{"Database": null}` when the database does not exist.
+	OperationGlueGetDatabase = "glue.get_database"
+	// OperationGlueGetDatabases: `{"CatalogId"?}` -> `{"DatabaseList": [...]}`, all pages.
+	OperationGlueGetDatabases = "glue.get_databases"
 	// OperationGlueDeleteTable: `{"CatalogId"?, "DatabaseName", "Name"}` ->
 	// `{"Deleted": bool}`; a missing table is not an error.
 	OperationGlueDeleteTable = "glue.delete_table"
@@ -169,6 +177,9 @@ var knownOperations = map[string]bool{
 	OperationAthenaStopCalculationExecution:  true,
 	OperationAthenaTerminateSession:          true,
 	OperationGlueGetTable:                    true,
+	OperationGlueGetTables:                   true,
+	OperationGlueGetDatabase:                 true,
+	OperationGlueGetDatabases:                true,
 	OperationGlueDeleteTable:                 true,
 	OperationGlueDeleteDatabase:              true,
 	OperationGlueGetTableVersions:            true,
@@ -203,6 +214,9 @@ var operationResultSchema = arrow.NewSchema([]arrow.Field{
 // *glueSDK.Client satisfies it; the paginator constructors accept it too.
 type glueClientAPI interface {
 	GetTable(ctx context.Context, params *glueSDK.GetTableInput, optFns ...func(*glueSDK.Options)) (*glueSDK.GetTableOutput, error)
+	GetTables(ctx context.Context, params *glueSDK.GetTablesInput, optFns ...func(*glueSDK.Options)) (*glueSDK.GetTablesOutput, error)
+	GetDatabase(ctx context.Context, params *glueSDK.GetDatabaseInput, optFns ...func(*glueSDK.Options)) (*glueSDK.GetDatabaseOutput, error)
+	GetDatabases(ctx context.Context, params *glueSDK.GetDatabasesInput, optFns ...func(*glueSDK.Options)) (*glueSDK.GetDatabasesOutput, error)
 	DeleteTable(ctx context.Context, params *glueSDK.DeleteTableInput, optFns ...func(*glueSDK.Options)) (*glueSDK.DeleteTableOutput, error)
 	DeleteDatabase(ctx context.Context, params *glueSDK.DeleteDatabaseInput, optFns ...func(*glueSDK.Options)) (*glueSDK.DeleteDatabaseOutput, error)
 	GetTableVersions(ctx context.Context, params *glueSDK.GetTableVersionsInput, optFns ...func(*glueSDK.Options)) (*glueSDK.GetTableVersionsOutput, error)
@@ -430,6 +444,56 @@ func (s *statementImpl) runOperation(ctx context.Context) ([]byte, error) {
 		default:
 			return nil, operationError(op, err)
 		}
+
+	case OperationGlueGetTables:
+		var in glueSDK.GetTablesInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		tables := []gluetypes.Table{}
+		paginator := glueSDK.NewGetTablesPaginator(clients.glue, &in)
+		for paginator.HasMorePages() {
+			page, err := paginator.NextPage(ctx)
+			if isGlueNotFound(err) {
+				break
+			}
+			if err != nil {
+				return nil, operationError(op, err)
+			}
+			tables = append(tables, page.TableList...)
+		}
+		out = map[string]any{"TableList": tables}
+
+	case OperationGlueGetDatabase:
+		var in glueSDK.GetDatabaseInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		database, err := clients.glue.GetDatabase(ctx, &in)
+		switch {
+		case err == nil:
+			out = database
+		case isGlueNotFound(err):
+			out = &glueSDK.GetDatabaseOutput{}
+		default:
+			return nil, operationError(op, err)
+		}
+
+	case OperationGlueGetDatabases:
+		var in glueSDK.GetDatabasesInput
+		if err := decodePayload(op, s.operationPayload, &in); err != nil {
+			return nil, err
+		}
+		databases := []gluetypes.Database{}
+		paginator := glueSDK.NewGetDatabasesPaginator(clients.glue, &in)
+		for paginator.HasMorePages() {
+			page, err := paginator.NextPage(ctx)
+			if err != nil {
+				return nil, operationError(op, err)
+			}
+			databases = append(databases, page.DatabaseList...)
+		}
+		out = map[string]any{"DatabaseList": databases}
 
 	case OperationGlueDeleteTable:
 		var in glueSDK.DeleteTableInput

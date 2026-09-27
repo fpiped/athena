@@ -44,6 +44,9 @@ import (
 
 type mockGlueClient struct {
 	getTableFn             func(*glueSDK.GetTableInput) (*glueSDK.GetTableOutput, error)
+	getTablesFn            func(*glueSDK.GetTablesInput) (*glueSDK.GetTablesOutput, error)
+	getDatabaseFn          func(*glueSDK.GetDatabaseInput) (*glueSDK.GetDatabaseOutput, error)
+	getDatabasesFn         func(*glueSDK.GetDatabasesInput) (*glueSDK.GetDatabasesOutput, error)
 	deleteTableFn          func(*glueSDK.DeleteTableInput) (*glueSDK.DeleteTableOutput, error)
 	deleteDatabaseFn       func(*glueSDK.DeleteDatabaseInput) (*glueSDK.DeleteDatabaseOutput, error)
 	getTableVersionsFn     func(*glueSDK.GetTableVersionsInput) (*glueSDK.GetTableVersionsOutput, error)
@@ -56,6 +59,15 @@ type mockGlueClient struct {
 
 func (m *mockGlueClient) GetTable(_ context.Context, in *glueSDK.GetTableInput, _ ...func(*glueSDK.Options)) (*glueSDK.GetTableOutput, error) {
 	return m.getTableFn(in)
+}
+func (m *mockGlueClient) GetTables(_ context.Context, in *glueSDK.GetTablesInput, _ ...func(*glueSDK.Options)) (*glueSDK.GetTablesOutput, error) {
+	return m.getTablesFn(in)
+}
+func (m *mockGlueClient) GetDatabase(_ context.Context, in *glueSDK.GetDatabaseInput, _ ...func(*glueSDK.Options)) (*glueSDK.GetDatabaseOutput, error) {
+	return m.getDatabaseFn(in)
+}
+func (m *mockGlueClient) GetDatabases(_ context.Context, in *glueSDK.GetDatabasesInput, _ ...func(*glueSDK.Options)) (*glueSDK.GetDatabasesOutput, error) {
+	return m.getDatabasesFn(in)
 }
 func (m *mockGlueClient) DeleteTable(_ context.Context, in *glueSDK.DeleteTableInput, _ ...func(*glueSDK.Options)) (*glueSDK.DeleteTableOutput, error) {
 	return m.deleteTableFn(in)
@@ -483,6 +495,65 @@ func TestOperation_GlueGetTable(t *testing.T) {
 	out.Table = nil
 	runOperationJSON(t, stmt, &out)
 	assert.Nil(t, out.Table)
+}
+
+func TestOperation_GlueGetTablesCollectsAllPagesAndTreatsAMissingDatabaseAsEmpty(t *testing.T) {
+	calls := 0
+	glue := &mockGlueClient{getTablesFn: func(in *glueSDK.GetTablesInput) (*glueSDK.GetTablesOutput, error) {
+		calls++
+		if *in.DatabaseName == "missing" {
+			return nil, &gluetypes.EntityNotFoundException{Message: strp("Database missing not found")}
+		}
+		assert.Equal(t, "123:s3tablescatalog/b", *in.CatalogId)
+		if in.NextToken == nil {
+			return &glueSDK.GetTablesOutput{
+				TableList: []gluetypes.Table{{Name: strp("a"), TableType: strp("EXTERNAL_TABLE")}},
+				NextToken: strp("more"),
+			}, nil
+		}
+		return &glueSDK.GetTablesOutput{TableList: []gluetypes.Table{{Name: strp("v"), TableType: strp("VIRTUAL_VIEW")}}}, nil
+	}}
+	stmt := newOperationStmt(t, nil, &awsClients{glue: glue}, OperationGlueGetTables, `{"CatalogId":"123:s3tablescatalog/b","DatabaseName":"db"}`)
+	var out struct {
+		TableList []struct{ Name, TableType string }
+	}
+	runOperationJSON(t, stmt, &out)
+	assert.Equal(t, 2, calls)
+	require.Len(t, out.TableList, 2)
+	assert.Equal(t, "VIRTUAL_VIEW", out.TableList[1].TableType)
+
+	stmt = newOperationStmt(t, nil, &awsClients{glue: glue}, OperationGlueGetTables, `{"DatabaseName":"missing"}`)
+	runOperationJSON(t, stmt, &out)
+	assert.Empty(t, out.TableList)
+}
+
+func TestOperation_GlueGetDatabaseAndDatabases(t *testing.T) {
+	glue := &mockGlueClient{
+		getDatabaseFn: func(in *glueSDK.GetDatabaseInput) (*glueSDK.GetDatabaseOutput, error) {
+			if *in.Name == "db" {
+				return &glueSDK.GetDatabaseOutput{Database: &gluetypes.Database{Name: strp("db")}}, nil
+			}
+			return nil, &gluetypes.EntityNotFoundException{Message: strp("no")}
+		},
+		getDatabasesFn: func(in *glueSDK.GetDatabasesInput) (*glueSDK.GetDatabasesOutput, error) {
+			if in.NextToken == nil {
+				return &glueSDK.GetDatabasesOutput{DatabaseList: []gluetypes.Database{{Name: strp("a")}}, NextToken: strp("n")}, nil
+			}
+			return &glueSDK.GetDatabasesOutput{DatabaseList: []gluetypes.Database{{Name: strp("b")}}}, nil
+		},
+	}
+	var one struct{ Database *struct{ Name string } }
+	runOperationJSON(t, newOperationStmt(t, nil, &awsClients{glue: glue}, OperationGlueGetDatabase, `{"Name":"db"}`), &one)
+	require.NotNil(t, one.Database)
+	assert.Equal(t, "db", one.Database.Name)
+	one.Database = nil
+	runOperationJSON(t, newOperationStmt(t, nil, &awsClients{glue: glue}, OperationGlueGetDatabase, `{"Name":"missing"}`), &one)
+	assert.Nil(t, one.Database)
+
+	var all struct{ DatabaseList []struct{ Name string } }
+	runOperationJSON(t, newOperationStmt(t, nil, &awsClients{glue: glue}, OperationGlueGetDatabases, `{}`), &all)
+	require.Len(t, all.DatabaseList, 2)
+	assert.Equal(t, "b", all.DatabaseList[1].Name)
 }
 
 func TestOperation_GlueDeleteTableTreatsNotFoundAsDeletedFalse(t *testing.T) {
